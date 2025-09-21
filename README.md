@@ -27,6 +27,12 @@ There are two main patterns demonstrated:
 - Open your browser to [http://localhost:3000](http://localhost:3000). It should default to the `chatSupervisor` Agent Config.
 - You can change examples via the "Scenario" dropdown in the top right.
 
+### Optional: Neon-backed order storage for DoorDash demo
+
+- Create a Neon project with a `doordash_orders` table that has columns `id serial primary key`, `customer_name text`, `items jsonb`, `promotion_code text`, `status text`, and `created_at timestamptz default now()`.
+- Add the Neon connection string to your environment as `NEON_DATABASE_URL`. The DoorDash multi-agent scenario will use this to persist orders and look up status.
+- If you serve the app from a non-localhost origin, expose that host to the client tools via `NEXT_PUBLIC_APP_URL` (for example `NEXT_PUBLIC_APP_URL=https://your-domain.com`).
+
 # Agentic Pattern 1: Chat-Supervisor
 
 This is demonstrated in the [chatSupervisor](src/app/agentConfigs/chatSupervisor/index.ts) Agent Config. The chat agent uses the realtime model to converse with the user and handle basic tasks, like greeting the user, casual conversation, and collecting information, and a more intelligent, text-based supervisor model (e.g. `gpt-4.1`) is used extensively to handle tool calls and more challenging responses. You can control the decision boundary by "opting in" specific tasks to the chat agent as desired.

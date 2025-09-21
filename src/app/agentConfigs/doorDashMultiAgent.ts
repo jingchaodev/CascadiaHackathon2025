@@ -1,6 +1,16 @@
 import { hostedMcpTool } from '@openai/agents';
 import { RealtimeAgent, tool } from '@openai/agents/realtime';
 
+const getApiBaseUrl = () => {
+  if (typeof window !== 'undefined' && window.location) {
+    return window.location.origin;
+  }
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return process.env.NEXT_PUBLIC_APP_URL;
+  }
+  return 'http://localhost:3000';
+};
+
 const getLatestOrderTool = tool({
   name: 'getLatestOrder',
   description:
@@ -117,6 +127,89 @@ const placeOrderTool = tool({
   execute: async (input: any) => ({ success: true, order_id: 'DD-493210', eta_minutes: 32 }),
 });
 
+const placeOrderInNeonTool = tool({
+  name: 'placeOrderInNeon',
+  description:
+    'Persists a new DoorDash order record in the Neon database and returns its identifier.',
+  parameters: {
+    type: 'object',
+    properties: {
+      customer_name: {
+        type: 'string',
+        description: 'Name to associate with the order record.',
+      },
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            quantity: { type: 'integer', minimum: 1 },
+            notes: { type: 'string' },
+          },
+          required: ['name', 'quantity'],
+          additionalProperties: false,
+        },
+        description: 'Items to persist with the order.',
+      },
+      promotion_code: {
+        type: 'string',
+        description: 'Optional promotion code applied to the order.',
+      },
+    },
+    required: ['customer_name', 'items'],
+    additionalProperties: false,
+  },
+  execute: async (input: any) => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerName: input.customer_name,
+          items: input.items,
+          promotionCode: input.promotion_code,
+        }),
+      });
+
+      if (!response.ok) {
+        let errorBody: any = {};
+        try {
+          errorBody = await response.clone().json();
+        } catch {
+          const text = await response.text().catch(() => '');
+          if (text) {
+            errorBody = { error: text };
+          }
+        }
+        console.error('[placeOrderInNeonTool] Neon insert failed', {
+          status: response.status,
+          error: errorBody.error,
+        });
+        return {
+          success: false,
+          error: errorBody.error ?? 'Failed to store order in Neon',
+          details: errorBody.details,
+        };
+      }
+
+      const { order } = await response.json();
+      return {
+        success: true,
+        order,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[placeOrderInNeonTool] Unexpected error', { error: message });
+      return {
+        success: false,
+        error: 'Unexpected failure while storing order in Neon',
+        details: message,
+      };
+    }
+  },
+});
+
 const getCustomerAddressTool = tool({
   name: 'getCustomerAddress',
   description: "Retrieves the customer's saved delivery address for DoorDash orders.",
@@ -142,6 +235,62 @@ const getCustomerAddressTool = tool({
     zip: '94105',
     delivery_notes: 'Call when arriving, buzzer is 12B.',
   }),
+});
+
+const getOrderStatusFromNeonTool = tool({
+  name: 'getOrderStatusFromNeon',
+  description: 'Fetches an existing DoorDash order from Neon by id and returns the latest status.',
+  parameters: {
+    type: 'object',
+    properties: {
+      order_id: {
+        type: 'integer',
+        description: 'Identifier returned when the order was stored in Neon.',
+      },
+    },
+    required: ['order_id'],
+    additionalProperties: false,
+  },
+  execute: async (input: any) => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/api/orders?orderId=${input.order_id}`);
+
+      if (!response.ok) {
+        let errorBody: any = {};
+        try {
+          errorBody = await response.clone().json();
+        } catch {
+          const text = await response.text().catch(() => '');
+          if (text) {
+            errorBody = { error: text };
+          }
+        }
+        console.error('[getOrderStatusFromNeonTool] Neon fetch failed', {
+          status: response.status,
+          error: errorBody.error,
+        });
+        return {
+          success: false,
+          error: errorBody.error ?? 'Failed to fetch order from Neon',
+          details: errorBody.details,
+        };
+      }
+
+      const { order } = await response.json();
+      return {
+        success: true,
+        order,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[getOrderStatusFromNeonTool] Unexpected error', { error: message });
+      return {
+        success: false,
+        error: 'Unexpected failure while fetching order from Neon',
+        details: message,
+      };
+    }
+  },
 });
 
 const issueRefundTool = tool({
@@ -348,6 +497,8 @@ export const orderingAgent = new RealtimeAgent({
     placeOrderTool,
     getCustomerAddressTool,
     applyPromotionCodeTool,
+    placeOrderInNeonTool,
+    getOrderStatusFromNeonTool,
   ],
   handoffs: [],
 });
@@ -385,7 +536,7 @@ export const refundAgent = new RealtimeAgent({
     'Handles refunds or adjustments when an active order is delayed or has issues.',
   instructions:
     "You manage DoorDash refund requests. Investigate the latest order delay, empathize with the customer, and share the resolution clearly. Use the refund tool when compensation is needed, or trigger a replacement order directly when appropriate. Hand back to ordering when you need them to finalize custom requests.",
-  tools: [getLatestOrderTool, issueRefundTool, createReplacementOrderTool],
+  tools: [getLatestOrderTool, issueRefundTool, createReplacementOrderTool, getOrderStatusFromNeonTool],
   handoffs: [],
 });
 
