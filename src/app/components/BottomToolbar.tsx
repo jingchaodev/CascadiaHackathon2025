@@ -6,6 +6,8 @@ interface BottomToolbarProps {
   onToggleConnection: () => void;
   isPTTActive: boolean;
   setIsPTTActive: (val: boolean) => void;
+  isUserMuted: boolean;
+  setIsUserMuted: (val: boolean) => void;
   isPTTUserSpeaking: boolean;
   handleTalkButtonDown: () => void;
   handleTalkButtonUp: () => void;
@@ -22,6 +24,8 @@ function BottomToolbar({
   onToggleConnection,
   isPTTActive,
   setIsPTTActive,
+  isUserMuted,
+  setIsUserMuted,
   isPTTUserSpeaking,
   handleTalkButtonDown,
   handleTalkButtonUp,
@@ -88,15 +92,31 @@ function BottomToolbar({
           onMouseUp={handleTalkButtonUp}
           onTouchStart={handleTalkButtonDown}
           onTouchEnd={handleTalkButtonUp}
-          disabled={!isPTTActive}
+          disabled={!isPTTActive || isUserMuted}
           className={
             (isPTTUserSpeaking ? "bg-gray-300" : "bg-gray-200") +
-            " py-1 px-4 cursor-pointer rounded-md" +
-            (!isPTTActive ? " bg-gray-100 text-gray-400" : "")
+            " py-1 px-4 rounded-md" +
+            (!isPTTActive || isUserMuted
+              ? " bg-gray-100 text-gray-400 cursor-not-allowed"
+              : " cursor-pointer")
           }
         >
           Talk
         </button>
+      </div>
+
+      <div className="flex flex-row items-center gap-2">
+        <input
+          id="mute-mic"
+          type="checkbox"
+          checked={isUserMuted}
+          onChange={(e) => setIsUserMuted(e.target.checked)}
+          disabled={!isConnected}
+          className="w-4 h-4"
+        />
+        <label htmlFor="mute-mic" className="flex items-center cursor-pointer">
+          Mute mic
+        </label>
       </div>
 
       <div className="flex flex-row items-center gap-1">

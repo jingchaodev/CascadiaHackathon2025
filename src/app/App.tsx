@@ -113,6 +113,11 @@ function App() {
   const [userText, setUserText] = useState<string>("");
   const [isPTTActive, setIsPTTActive] = useState<boolean>(false);
   const [isPTTUserSpeaking, setIsPTTUserSpeaking] = useState<boolean>(false);
+  const [isUserMuted, setIsUserMuted] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const stored = localStorage.getItem('userMuted');
+    return stored ? stored === 'true' : false;
+  });
   const [isAudioPlaybackEnabled, setIsAudioPlaybackEnabled] = useState<boolean>(
     () => {
       if (typeof window === 'undefined') return true;
@@ -180,6 +185,12 @@ function App() {
       updateSession();
     }
   }, [isPTTActive]);
+
+  useEffect(() => {
+    if (sessionStatus === 'CONNECTED') {
+      mute(isUserMuted || (isPTTActive && !isPTTUserSpeaking));
+    }
+  }, [sessionStatus, isUserMuted, isPTTActive, isPTTUserSpeaking, mute]);
 
   const fetchEphemeralKey = async (): Promise<string | null> => {
     console.info('[App] requesting ephemeral key');
@@ -288,11 +299,7 @@ function App() {
     // `session.update` event.
     const turnDetection = isPTTActive
       ? {
-          type: 'server_vad',
-          threshold: 0.9,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 500,
-          create_response: false,
+          type: 'none',
         }
       : {
           type: 'server_vad',
@@ -306,7 +313,7 @@ function App() {
       type: 'session.update',
       session: {
         type: 'realtime',
-        // turn_detection: turnDetection,
+        turn_detection: turnDetection,
       },
     });
 
@@ -331,22 +338,48 @@ function App() {
   };
 
   const handleTalkButtonDown = () => {
-    if (sessionStatus !== 'CONNECTED') return;
+    if (sessionStatus !== 'CONNECTED' || !isPTTActive || isUserMuted) return;
     interrupt();
 
     setIsPTTUserSpeaking(true);
+    mute(isUserMuted);
     sendClientEvent({ type: 'input_audio_buffer.clear' }, 'clear PTT buffer');
 
     // No placeholder; we'll rely on server transcript once ready.
   };
 
   const handleTalkButtonUp = () => {
-    if (sessionStatus !== 'CONNECTED' || !isPTTUserSpeaking)
-      return;
+    if (sessionStatus !== 'CONNECTED' || !isPTTUserSpeaking) return;
 
     setIsPTTUserSpeaking(false);
     sendClientEvent({ type: 'input_audio_buffer.commit' }, 'commit PTT');
     sendClientEvent({ type: 'response.create' }, 'trigger response PTT');
+    mute(isUserMuted || isPTTActive);
+  };
+
+  const handleSetPTTActive = (val: boolean) => {
+    setIsPTTActive(val);
+
+    if (val) {
+      setIsPTTUserSpeaking(false);
+    }
+
+    if (sessionStatus === 'CONNECTED') {
+      const shouldMute = val ? true : isUserMuted;
+      mute(shouldMute);
+    }
+  };
+
+  const handleSetUserMuted = (val: boolean) => {
+    setIsUserMuted(val);
+    if (val) {
+      setIsPTTUserSpeaking(false);
+    }
+
+    if (sessionStatus === 'CONNECTED') {
+      const shouldMute = val || (isPTTActive && !isPTTUserSpeaking);
+      mute(shouldMute);
+    }
   };
 
   const onToggleConnection = () => {
@@ -392,6 +425,10 @@ function App() {
     if (storedLogsExpanded) {
       setIsEventsPaneExpanded(storedLogsExpanded === "true");
     }
+    const storedUserMuted = localStorage.getItem('userMuted');
+    if (storedUserMuted) {
+      setIsUserMuted(storedUserMuted === 'true');
+    }
     const storedAudioPlaybackEnabled = localStorage.getItem(
       "audioPlaybackEnabled"
     );
@@ -403,6 +440,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem("pushToTalkUI", isPTTActive.toString());
   }, [isPTTActive]);
+
+  useEffect(() => {
+    localStorage.setItem('userMuted', isUserMuted.toString());
+  }, [isUserMuted]);
 
   useEffect(() => {
     localStorage.setItem("logsExpanded", isEventsPaneExpanded.toString());
@@ -429,26 +470,7 @@ function App() {
       }
     }
 
-    // Toggle server-side audio stream mute so bandwidth is saved when the
-    // user disables playback. 
-    try {
-      mute(!isAudioPlaybackEnabled);
-    } catch (err) {
-      console.warn('Failed to toggle SDK mute', err);
-    }
   }, [isAudioPlaybackEnabled]);
-
-  // Ensure mute state is propagated to transport right after we connect or
-  // whenever the SDK client reference becomes available.
-  useEffect(() => {
-    if (sessionStatus === 'CONNECTED') {
-      try {
-        mute(!isAudioPlaybackEnabled);
-      } catch (err) {
-        console.warn('mute sync after connect failed', err);
-      }
-    }
-  }, [sessionStatus, isAudioPlaybackEnabled]);
 
   useEffect(() => {
     if (sessionStatus === "CONNECTED" && audioElementRef.current?.srcObject) {
@@ -566,7 +588,9 @@ function App() {
         sessionStatus={sessionStatus}
         onToggleConnection={onToggleConnection}
         isPTTActive={isPTTActive}
-        setIsPTTActive={setIsPTTActive}
+        setIsPTTActive={handleSetPTTActive}
+        isUserMuted={isUserMuted}
+        setIsUserMuted={handleSetUserMuted}
         isPTTUserSpeaking={isPTTUserSpeaking}
         handleTalkButtonDown={handleTalkButtonDown}
         handleTalkButtonUp={handleTalkButtonUp}
