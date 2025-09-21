@@ -177,11 +177,11 @@ const getCustomerAddressTool = tool({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   execute: async (input: any) => ({
     label: 'home',
-    street: '501 Market St',
-    unit: 'Apt 12B',
-    city: 'San Francisco',
-    state: 'CA',
-    zip: '94105',
+    street: '1700 Westlake Ave N',
+    unit: 'Suite #200',
+    city: 'Seattle',
+    state: 'WA',
+    zip: '98109',
     delivery_notes: 'Call when arriving, buzzer is 12B.',
   }),
 });
@@ -236,6 +236,101 @@ const fetchOrderRecordTool = tool({
       return {
         success: false,
         error: 'Unexpected failure while fetching order record',
+        details: message,
+      };
+    }
+  },
+});
+
+const fetchNearbyRestaurantsTool = tool({
+  name: 'fetchNearbyRestaurants',
+  description:
+    'Looks up nearby restaurants for the user based on location, cuisine, and delivery radius.',
+  parameters: {
+    type: 'object',
+    properties: {
+      latitude: {
+        type: 'number',
+        description:
+          'Latitude of the user or delivery address. When omitted, defaults to Thinkspace (1700 Westlake Ave N, Seattle).',
+      },
+      longitude: {
+        type: 'number',
+        description:
+          'Longitude of the user or delivery address. Must be provided when latitude is supplied.',
+      },
+      radius_miles: {
+        type: 'number',
+        description: 'Optional search radius in miles. Defaults to 3 miles.',
+        minimum: 0.5,
+        maximum: 15,
+      },
+      cuisine: {
+        type: 'string',
+        description: 'Optional cuisine filter (e.g. Thai, Mexican, Sushi).',
+      },
+      limit: {
+        type: 'integer',
+        description: 'Optional maximum number of restaurants to return. Defaults to 5.',
+        minimum: 1,
+        maximum: 20,
+      },
+    },
+    required: [],
+    additionalProperties: false,
+  },
+  execute: async (input: any) => {
+    try {
+      const params = new URLSearchParams();
+      if (typeof input.latitude === 'number' && typeof input.longitude === 'number') {
+        params.set('latitude', String(input.latitude));
+        params.set('longitude', String(input.longitude));
+      }
+      if (typeof input.radius_miles === 'number') {
+        params.set('radiusMiles', String(input.radius_miles));
+      }
+      if (typeof input.cuisine === 'string' && input.cuisine.trim().length > 0) {
+        params.set('cuisine', input.cuisine.trim());
+      }
+      if (typeof input.limit === 'number') {
+        params.set('limit', String(input.limit));
+      }
+
+      const url = `${getApiBaseUrl()}/api/restaurants${params.size ? `?${params.toString()}` : ''}`;
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        let errorBody: any = {};
+        try {
+          errorBody = await response.clone().json();
+        } catch {
+          const text = await response.text().catch(() => '');
+          if (text) {
+            errorBody = { error: text };
+          }
+        }
+        console.error('[fetchNearbyRestaurantsTool] Restaurant lookup failed', {
+          status: response.status,
+          error: errorBody.error,
+        });
+        return {
+          success: false,
+          error: errorBody.error ?? 'Failed to fetch nearby restaurants',
+          details: errorBody.details,
+        };
+      }
+
+      const { restaurants } = await response.json();
+      return {
+        success: true,
+        restaurants,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[fetchNearbyRestaurantsTool] Unexpected error', { error: message });
+      return {
+        success: false,
+        error: 'Unexpected failure while fetching nearby restaurants',
         details: message,
       };
     }
@@ -457,7 +552,7 @@ export const recommendationAgent = new RealtimeAgent({
     'Provides restaurant and menu recommendations based on the customer\'s ordering history.',
   instructions:
     "You are the restaurant recommendation expert. Use past orders to understand taste, spotlight any active promotions that fit, surface two or three strong options, and confirm interest before handing back to ordering. Highlight standout dishes and delivery estimates when possible.",
-  tools: [fetchOrderHistoryTool, getActivePromotionsTool, hostedMcpTool({
+  tools: [fetchOrderHistoryTool, getActivePromotionsTool, fetchNearbyRestaurantsTool, hostedMcpTool({
           serverLabel: 'langflow',
           serverUrl: 'http://localhost:7860/api/v1/mcp/project/4d8f7027-75b1-40ba-b99f-17984f4ebf21/sse',
           allowedTools: ['top_restaurant_search']
