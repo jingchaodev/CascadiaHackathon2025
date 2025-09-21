@@ -11,33 +11,6 @@ const getApiBaseUrl = () => {
   return 'http://localhost:3000';
 };
 
-const getLatestOrderTool = tool({
-  name: 'getLatestOrder',
-  description:
-    "Fetches the user's most recent DoorDash order, including status, ETA, and restaurant details.",
-  parameters: {
-    type: 'object',
-    properties: {},
-    required: [],
-    additionalProperties: false,
-  },
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  execute: async (input: any) => ({
-    order_id: 'DD-482913',
-    restaurant: 'Tasty Thai Kitchen',
-    status: 'Delayed',
-    delay_reason: 'Courier stuck in traffic',
-    estimated_delivery: 'Delayed ~25 minutes',
-    courier_name: 'Jamie',
-    subtotal_usd: 28.5,
-    items: [
-      { name: 'Pad See Ew', quantity: 1 },
-      { name: 'Veggie Spring Rolls', quantity: 1 },
-    ],
-    issue_flags: ['courier-stationary-12-min'],
-  }),
-});
-
 const getPastOrdersTool = tool({
   name: 'getPastOrders',
   description:
@@ -79,58 +52,10 @@ const getPastOrdersTool = tool({
   }),
 });
 
-const placeOrderTool = tool({
-  name: 'placeOrder',
+const createOrderRecordTool = tool({
+  name: 'createOrderRecord',
   description:
-    'Creates a new DoorDash order using the provided restaurant and item selections.',
-  parameters: {
-    type: 'object',
-    properties: {
-      restaurant: {
-        type: 'string',
-        description: 'Restaurant name or identifier to order from.',
-      },
-      items: {
-        type: 'array',
-        description: 'Line items for the order, in the sequence they should be placed.',
-        items: {
-          type: 'object',
-          properties: {
-            name: {
-              type: 'string',
-              description: 'Menu item name.',
-            },
-            quantity: {
-              type: 'integer',
-              minimum: 1,
-              description: 'Quantity requested for the menu item.',
-            },
-            modifiers: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Optional list of modifiers or special instructions for the item.',
-            },
-          },
-          required: ['name', 'quantity'],
-          additionalProperties: false,
-        },
-      },
-      delivery_instructions: {
-        type: 'string',
-        description: 'Optional delivery instructions to pass to the courier.',
-      },
-    },
-    required: ['restaurant', 'items'],
-    additionalProperties: false,
-  },
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  execute: async (input: any) => ({ success: true, order_id: 'DD-493210', eta_minutes: 32 }),
-});
-
-const placeOrderInNeonTool = tool({
-  name: 'placeOrderInNeon',
-  description:
-    'Persists a new DoorDash order record in the Neon database and returns its identifier.',
+    'Persists an order record in the order database and returns its identifier and status.',
   parameters: {
     type: 'object',
     properties: {
@@ -182,13 +107,13 @@ const placeOrderInNeonTool = tool({
             errorBody = { error: text };
           }
         }
-        console.error('[placeOrderInNeonTool] Neon insert failed', {
+        console.error('[createOrderRecordTool] Database insert failed', {
           status: response.status,
           error: errorBody.error,
         });
         return {
           success: false,
-          error: errorBody.error ?? 'Failed to store order in Neon',
+          error: errorBody.error ?? 'Failed to store order record',
           details: errorBody.details,
         };
       }
@@ -200,10 +125,10 @@ const placeOrderInNeonTool = tool({
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error('[placeOrderInNeonTool] Unexpected error', { error: message });
+      console.error('[createOrderRecordTool] Unexpected error', { error: message });
       return {
         success: false,
-        error: 'Unexpected failure while storing order in Neon',
+        error: 'Unexpected failure while storing order record',
         details: message,
       };
     }
@@ -237,15 +162,15 @@ const getCustomerAddressTool = tool({
   }),
 });
 
-const getOrderStatusFromNeonTool = tool({
-  name: 'getOrderStatusFromNeon',
-  description: 'Fetches an existing DoorDash order from Neon by id and returns the latest status.',
+const fetchOrderRecordTool = tool({
+  name: 'fetchOrderRecord',
+  description: 'Fetches an order record by id and returns the latest stored details.',
   parameters: {
     type: 'object',
     properties: {
       order_id: {
         type: 'integer',
-        description: 'Identifier returned when the order was stored in Neon.',
+        description: 'Identifier returned when the order record was created.',
       },
     },
     required: ['order_id'],
@@ -265,13 +190,13 @@ const getOrderStatusFromNeonTool = tool({
             errorBody = { error: text };
           }
         }
-        console.error('[getOrderStatusFromNeonTool] Neon fetch failed', {
+        console.error('[fetchOrderRecordTool] Database fetch failed', {
           status: response.status,
           error: errorBody.error,
         });
         return {
           success: false,
-          error: errorBody.error ?? 'Failed to fetch order from Neon',
+          error: errorBody.error ?? 'Failed to fetch order record',
           details: errorBody.details,
         };
       }
@@ -283,10 +208,10 @@ const getOrderStatusFromNeonTool = tool({
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error('[getOrderStatusFromNeonTool] Unexpected error', { error: message });
+      console.error('[fetchOrderRecordTool] Unexpected error', { error: message });
       return {
         success: false,
-        error: 'Unexpected failure while fetching order from Neon',
+        error: 'Unexpected failure while fetching order record',
         details: message,
       };
     }
@@ -492,13 +417,11 @@ export const orderingAgent = new RealtimeAgent({
   instructions:
     "You are the DoorDash ordering specialist. Confirm customer identity, review the latest order status, and place new orders when requested. Make sure you verify delivery address details before confirming any new or replacement order. Summarize key actions back to the user and stay concise.",
   tools: [
-    getLatestOrderTool,
     getPastOrdersTool,
-    placeOrderTool,
     getCustomerAddressTool,
     applyPromotionCodeTool,
-    placeOrderInNeonTool,
-    getOrderStatusFromNeonTool,
+    createOrderRecordTool,
+    fetchOrderRecordTool,
   ],
   handoffs: [],
 });
@@ -536,7 +459,7 @@ export const refundAgent = new RealtimeAgent({
     'Handles refunds or adjustments when an active order is delayed or has issues.',
   instructions:
     "You manage DoorDash refund requests. Investigate the latest order delay, empathize with the customer, and share the resolution clearly. Use the refund tool when compensation is needed, or trigger a replacement order directly when appropriate. Hand back to ordering when you need them to finalize custom requests.",
-  tools: [getLatestOrderTool, issueRefundTool, createReplacementOrderTool, getOrderStatusFromNeonTool],
+  tools: [fetchOrderRecordTool, issueRefundTool, createReplacementOrderTool],
   handoffs: [],
 });
 
