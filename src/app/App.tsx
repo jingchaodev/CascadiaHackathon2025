@@ -24,8 +24,10 @@ import { createModerationGuardrail } from "@/app/agentConfigs/guardrails";
 import { allAgentSets, defaultAgentSetKey } from "@/app/agentConfigs";
 import { customerServiceRetailScenario } from "@/app/agentConfigs/customerServiceRetail";
 import { chatSupervisorScenario } from "@/app/agentConfigs/chatSupervisor";
+import { doorDashMultiAgentScenario } from "@/app/agentConfigs/doorDashMultiAgent";
 import { customerServiceRetailCompanyName } from "@/app/agentConfigs/customerServiceRetail";
 import { chatSupervisorCompanyName } from "@/app/agentConfigs/chatSupervisor";
+import { doorDashCompanyName } from "@/app/agentConfigs/doorDashMultiAgent";
 import { simpleHandoffScenario } from "@/app/agentConfigs/simpleHandoff";
 
 // Map used by connect logic for scenarios defined via the SDK.
@@ -33,6 +35,7 @@ const sdkScenarioMap: Record<string, RealtimeAgent[]> = {
   simpleHandoff: simpleHandoffScenario,
   customerServiceRetail: customerServiceRetailScenario,
   chatSupervisor: chatSupervisorScenario,
+  doorDashMultiAgent: doorDashMultiAgentScenario,
 };
 
 import useAudioDownload from "./hooks/useAudioDownload";
@@ -212,9 +215,15 @@ function App() {
           reorderedAgents.unshift(agent);
         }
 
-        const companyName = agentSetKey === 'customerServiceRetail'
-          ? customerServiceRetailCompanyName
-          : chatSupervisorCompanyName;
+        const scenarioCompanyNames: Record<string, string> = {
+          customerServiceRetail: customerServiceRetailCompanyName,
+          chatSupervisor: chatSupervisorCompanyName,
+          doorDashMultiAgent: doorDashCompanyName,
+        };
+
+        const companyName =
+          scenarioCompanyNames[agentSetKey] ?? chatSupervisorCompanyName;
+
         const guardrail = createModerationGuardrail(companyName);
 
         await connect({
