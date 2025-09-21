@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchOrderById, insertOrder } from '@/server/neonClient';
+import { fetchAllOrders, fetchOrderById, insertOrder } from '@/server/neonClient';
 
 function missingConfigResponse() {
   return NextResponse.json(
@@ -80,48 +80,82 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const orderIdParam = searchParams.get('orderId');
+  const limitParam = searchParams.get('limit');
 
-  if (!orderIdParam) {
-    return NextResponse.json({ error: 'orderId query parameter is required' }, { status: 400 });
+  if (orderIdParam) {
+    const orderId = Number.parseInt(orderIdParam, 10);
+    if (Number.isNaN(orderId)) {
+      return NextResponse.json({ error: 'orderId must be a number' }, { status: 400 });
+    }
+
+    try {
+      const order = await fetchOrderById(orderId);
+
+      if (!order) {
+        return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+      }
+
+      const items =
+        typeof order.items === 'string'
+          ? JSON.parse(order.items)
+          : Array.isArray(order.items)
+            ? order.items
+            : [];
+
+      return NextResponse.json({
+        order: {
+          id: order.id,
+          status: order.status,
+          customerName: order.customer_name,
+          promotionCode: order.promotion_code,
+          createdAt: order.created_at,
+          items,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[orders API][GET] Failed to fetch order', {
+        error: message,
+        orderId,
+      });
+      return NextResponse.json(
+        { error: 'Failed to fetch order', details: message },
+        { status: 500 },
+      );
+    }
   }
 
-  const orderId = Number.parseInt(orderIdParam, 10);
-  if (Number.isNaN(orderId)) {
-    return NextResponse.json({ error: 'orderId must be a number' }, { status: 400 });
+  const limit = limitParam ? Number.parseInt(limitParam, 10) : 25;
+  if (limitParam && (Number.isNaN(limit) || limit <= 0)) {
+    return NextResponse.json({ error: 'limit must be a positive number' }, { status: 400 });
   }
 
   try {
-    const order = await fetchOrderById(orderId);
+    const orders = await fetchAllOrders(limit);
 
-    if (!order) {
-      return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-    }
+    const normalized = orders.map((order) => ({
+      id: order.id,
+      status: order.status,
+      customerName: order.customer_name,
+      promotionCode: order.promotion_code,
+      createdAt: order.created_at,
+      items:
+        typeof order.items === 'string'
+          ? JSON.parse(order.items)
+          : Array.isArray(order.items)
+            ? order.items
+            : [],
+    }));
 
-    const items =
-      typeof order.items === 'string'
-        ? JSON.parse(order.items)
-        : Array.isArray(order.items)
-          ? order.items
-          : [];
-
-    return NextResponse.json({
-      order: {
-        id: order.id,
-        status: order.status,
-        customerName: order.customer_name,
-        promotionCode: order.promotion_code,
-        createdAt: order.created_at,
-        items,
-      },
-    });
+    return NextResponse.json({ orders: normalized });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error('[orders API][GET] Failed to fetch order', {
+    console.error('[orders API][GET] Failed to fetch orders', {
       error: message,
-      orderId,
+      limit,
     });
     return NextResponse.json(
-      { error: 'Failed to fetch order', details: message },
+      { error: 'Failed to fetch orders', details: message },
       { status: 500 },
     );
   }

@@ -11,45 +11,69 @@ const getApiBaseUrl = () => {
   return 'http://localhost:3000';
 };
 
-const getPastOrdersTool = tool({
-  name: 'getPastOrders',
+const fetchOrderHistoryTool = tool({
+  name: 'fetchOrderHistory',
   description:
-    "Returns a history of previous DoorDash orders to understand the customer's taste preferences.",
+    "Retrieves recent DoorDash orders from the order database to understand the customer's taste preferences.",
   parameters: {
     type: 'object',
     properties: {
-      time_range_days: {
+      limit: {
         type: 'integer',
-        description: 'Optional window (in days) to filter past orders.',
-        minimum: 7,
+        minimum: 1,
+        maximum: 100,
+        description: 'Maximum number of historical orders to retrieve. Defaults to 25.',
       },
     },
     required: [],
     additionalProperties: false,
   },
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  execute: async (input: any) => ({
-    orders: [
-      {
-        order_id: 'DD-472110',
-        restaurant: 'Sakura Sushi',
-        order_date: '2024-05-28',
-        favorites: ['Spicy Tuna Roll', 'Miso Soup'],
-      },
-      {
-        order_id: 'DD-468902',
-        restaurant: 'La Taqueria Feliz',
-        order_date: '2024-05-20',
-        favorites: ['Al Pastor Tacos', 'Churros'],
-      },
-      {
-        order_id: 'DD-461355',
-        restaurant: 'Green Bowl Salads',
-        order_date: '2024-05-12',
-        favorites: ['Harvest Grain Bowl'],
-      },
-    ],
-  }),
+  execute: async (input: any) => {
+    try {
+      const params = new URLSearchParams();
+      if (typeof input.limit === 'number') {
+        params.set('limit', String(input.limit));
+      }
+
+      const url = `${getApiBaseUrl()}/api/orders${params.size ? `?${params.toString()}` : ''}`;
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        let errorBody: any = {};
+        try {
+          errorBody = await response.clone().json();
+        } catch {
+          const text = await response.text().catch(() => '');
+          if (text) {
+            errorBody = { error: text };
+          }
+        }
+        console.error('[fetchOrderHistoryTool] Database fetch failed', {
+          status: response.status,
+          error: errorBody.error,
+        });
+        return {
+          success: false,
+          error: errorBody.error ?? 'Failed to fetch order history',
+          details: errorBody.details,
+        };
+      }
+
+      const { orders } = await response.json();
+      return {
+        success: true,
+        orders,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[fetchOrderHistoryTool] Unexpected error', { error: message });
+      return {
+        success: false,
+        error: 'Unexpected failure while fetching order history',
+        details: message,
+      };
+    }
+  },
 });
 
 const createOrderRecordTool = tool({
@@ -417,7 +441,7 @@ export const orderingAgent = new RealtimeAgent({
   instructions:
     "You are the DoorDash ordering specialist. Confirm customer identity, review the latest order status, and place new orders when requested. Make sure you verify delivery address details before confirming any new or replacement order. Summarize key actions back to the user and stay concise.",
   tools: [
-    getPastOrdersTool,
+    fetchOrderHistoryTool,
     getCustomerAddressTool,
     applyPromotionCodeTool,
     createOrderRecordTool,
@@ -433,7 +457,7 @@ export const recommendationAgent = new RealtimeAgent({
     'Provides restaurant and menu recommendations based on the customer\'s ordering history.',
   instructions:
     "You are the restaurant recommendation expert. Use past orders to understand taste, spotlight any active promotions that fit, surface two or three strong options, and confirm interest before handing back to ordering. Highlight standout dishes and delivery estimates when possible.",
-  tools: [getPastOrdersTool, getActivePromotionsTool, hostedMcpTool({
+  tools: [fetchOrderHistoryTool, getActivePromotionsTool, hostedMcpTool({
           serverLabel: 'langflow',
           serverUrl: 'http://localhost:7860/api/v1/mcp/project/4d8f7027-75b1-40ba-b99f-17984f4ebf21/sse',
           allowedTools: ['top_restaurant_search']

@@ -79,3 +79,34 @@ export async function fetchOrderById(orderId: number) {
     throw error;
   }
 }
+
+export async function fetchAllOrders(limit = 25) {
+  const client = requireNeonClient();
+
+  try {
+    const rows = await client<
+      Array<{
+        id: number;
+        status: string;
+        customer_name: string;
+        promotion_code: string | null;
+        created_at: string;
+        items: unknown;
+      }>
+    >`
+      SELECT id, status, customer_name, promotion_code, created_at, items
+      FROM doordash_orders
+      ORDER BY created_at DESC
+      LIMIT ${limit};
+    `;
+
+    return rows;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[neonClient] fetchAllOrders failed', {
+      error: message,
+      limit,
+    });
+    throw error;
+  }
+}
