@@ -6,14 +6,8 @@ const getLatestOrderTool = tool({
     "Fetches the user's most recent DoorDash order, including status, ETA, and restaurant details.",
   parameters: {
     type: 'object',
-    properties: {
-      phone_number: {
-        type: 'string',
-        description: "Customer's verified phone number. Formatted like '(111) 222-3333'.",
-        pattern: '^\\(\\d{3}\\) \\d{3}-\\d{4}$',
-      },
-    },
-    required: ['phone_number'],
+    properties: {},
+    required: [],
     additionalProperties: false,
   },
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -21,7 +15,8 @@ const getLatestOrderTool = tool({
     order_id: 'DD-482913',
     restaurant: 'Tasty Thai Kitchen',
     status: 'Delayed',
-    estimated_delivery: '15-20 minutes',
+    delay_reason: 'Courier stuck in traffic',
+    estimated_delivery: 'Delayed ~25 minutes',
     courier_name: 'Jamie',
     subtotal_usd: 28.5,
     items: [
