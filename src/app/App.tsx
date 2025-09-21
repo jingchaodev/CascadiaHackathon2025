@@ -182,25 +182,36 @@ function App() {
   }, [isPTTActive]);
 
   const fetchEphemeralKey = async (): Promise<string | null> => {
+    console.info('[App] requesting ephemeral key');
     logClientEvent({ url: "/session" }, "fetch_session_token_request");
     const tokenResponse = await fetch("/api/session");
+    console.info('[App] /api/session response', {
+      ok: tokenResponse.ok,
+      status: tokenResponse.status,
+      response: tokenResponse,
+    });
     const data = await tokenResponse.json();
     logServerEvent(data, "fetch_session_token_response");
 
-    if (!data.client_secret?.value) {
+    if (!data.value) {
       logClientEvent(data, "error.no_ephemeral_key");
       console.error("No ephemeral key provided by the server");
       setSessionStatus("DISCONNECTED");
       return null;
     }
 
-    return data.client_secret.value;
+    console.info('[App] ephemeral key fetched');
+    return data.value;
   };
 
   const connectToRealtime = async () => {
     const agentSetKey = searchParams.get("agentConfig") || "default";
     if (sdkScenarioMap[agentSetKey]) {
       if (sessionStatus !== "DISCONNECTED") return;
+      console.info('[App] connectToRealtime invoked', {
+        scenario: agentSetKey,
+        selectedAgentName,
+      });
       setSessionStatus("CONNECTING");
 
       try {
@@ -226,6 +237,10 @@ function App() {
 
         const guardrail = createModerationGuardrail(companyName);
 
+        console.info('[App] connecting with reordered agents', {
+          primaryAgent: reorderedAgents[0]?.name,
+          agentCount: reorderedAgents.length,
+        });
         await connect({
           getEphemeralKey: async () => EPHEMERAL_KEY,
           initialAgents: reorderedAgents,
@@ -235,6 +250,7 @@ function App() {
             addTranscriptBreadcrumb,
           },
         });
+        console.info('[App] connectToRealtime succeeded');
       } catch (err) {
         console.error("Error connecting via SDK:", err);
         setSessionStatus("DISCONNECTED");
@@ -244,6 +260,7 @@ function App() {
   };
 
   const disconnectFromRealtime = () => {
+    console.info('[App] disconnectFromRealtime invoked');
     disconnect();
     setSessionStatus("DISCONNECTED");
     setIsPTTUserSpeaking(false);
@@ -270,7 +287,13 @@ function App() {
     // backend. The Realtime SDK supports live session updates via the
     // `session.update` event.
     const turnDetection = isPTTActive
-      ? null
+      ? {
+          type: 'server_vad',
+          threshold: 0.9,
+          prefix_padding_ms: 300,
+          silence_duration_ms: 500,
+          create_response: false,
+        }
       : {
           type: 'server_vad',
           threshold: 0.9,
@@ -282,7 +305,8 @@ function App() {
     sendEvent({
       type: 'session.update',
       session: {
-        turn_detection: turnDetection,
+        type: 'realtime',
+        // turn_detection: turnDetection,
       },
     });
 

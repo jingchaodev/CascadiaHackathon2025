@@ -59,7 +59,6 @@ export function useRealtimeSession(callbacks: RealtimeSessionCallbacks = {}) {
         break;
       }
       default: {
-        logServerEvent(event);
         break;
       } 
     }
@@ -86,27 +85,55 @@ export function useRealtimeSession(callbacks: RealtimeSessionCallbacks = {}) {
   };
 
   useEffect(() => {
-    if (sessionRef.current) {
-      // Log server errors
-      sessionRef.current.on("error", (...args: any[]) => {
-        logServerEvent({
-          type: "error",
-          message: args[0],
-        });
+    const session = sessionRef.current;
+    if (!session) return;
+
+    const handleSessionError = (...args: any[]) => {
+      logServerEvent({
+        type: 'error',
+        message: args[0],
       });
+    };
 
-      // history events
-      sessionRef.current.on("agent_handoff", handleAgentHandoff);
-      sessionRef.current.on("agent_tool_start", historyHandlers.handleAgentToolStart);
-      sessionRef.current.on("agent_tool_end", historyHandlers.handleAgentToolEnd);
-      sessionRef.current.on("history_updated", historyHandlers.handleHistoryUpdated);
-      sessionRef.current.on("history_added", historyHandlers.handleHistoryAdded);
-      sessionRef.current.on("guardrail_tripped", historyHandlers.handleGuardrailTripped);
+    session.on('error', handleSessionError);
+    session.on('agent_handoff', handleAgentHandoff);
+    session.on('agent_tool_start', historyHandlers.handleAgentToolStart);
+    session.on('agent_tool_end', historyHandlers.handleAgentToolEnd);
+    session.on('history_updated', historyHandlers.handleHistoryUpdated);
+    session.on('history_added', historyHandlers.handleHistoryAdded);
+    session.on('guardrail_tripped', historyHandlers.handleGuardrailTripped);
+    session.on('transport_event', handleTransportEvent);
 
-      // additional transport events
-      sessionRef.current.on("transport_event", handleTransportEvent);
-    }
-  }, [sessionRef.current]);
+    return () => {
+      session.off('error', handleSessionError);
+      session.off('agent_handoff', handleAgentHandoff);
+      session.off('agent_tool_start', historyHandlers.handleAgentToolStart);
+      session.off('agent_tool_end', historyHandlers.handleAgentToolEnd);
+      session.off('history_updated', historyHandlers.handleHistoryUpdated);
+      session.off('history_added', historyHandlers.handleHistoryAdded);
+      session.off('guardrail_tripped', historyHandlers.handleGuardrailTripped);
+      session.off('transport_event', handleTransportEvent);
+    };
+  }, [historyHandlers, logServerEvent]);
+
+  useEffect(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+
+    const logTransportEvent = (event: any) => {
+      const { type = '(unknown)' } = event ?? {};
+      console.info('[RealtimeSession][transport]', type, event);
+      logServerEvent(event);
+    };
+
+    session.transport.on('*', logTransportEvent);
+    session.on('transport_event', logTransportEvent);
+
+    return () => {
+      session.transport.off('*', logTransportEvent);
+      session.off('transport_event', logTransportEvent);
+    };
+  }, [logServerEvent]);
 
   const connect = useCallback(
     async ({
@@ -116,11 +143,20 @@ export function useRealtimeSession(callbacks: RealtimeSessionCallbacks = {}) {
       extraContext,
       outputGuardrails,
     }: ConnectOptions) => {
-      if (sessionRef.current) return; // already connected
+      if (sessionRef.current) {
+        console.info('[RealtimeSession] connect skipped - session already active');
+        return; // already connected
+      }
 
+      console.info('[RealtimeSession] connect invoked', {
+        agent: initialAgents[0]?.name,
+      });
       updateStatus('CONNECTING');
 
       const ek = await getEphemeralKey();
+      console.info('[RealtimeSession] ephemeral key fetch complete', {
+        provided: Boolean(ek),
+      });
       const rootAgent = initialAgents[0];
 
       // This lets you use the codec selector in the UI to force narrow-band (8 kHz) codecs to
@@ -128,6 +164,9 @@ export function useRealtimeSession(callbacks: RealtimeSessionCallbacks = {}) {
       const codecParam = codecParamRef.current;
       const audioFormat = audioFormatForCodec(codecParam);
 
+      console.info('[RealtimeSession] constructing session', {
+        agent: rootAgent?.name,
+      });
       sessionRef.current = new RealtimeSession(rootAgent, {
         transport: new OpenAIRealtimeWebRTC({
           audioElement,
@@ -144,18 +183,32 @@ export function useRealtimeSession(callbacks: RealtimeSessionCallbacks = {}) {
           inputAudioTranscription: {
             model: 'gpt-4o-mini-transcribe',
           },
+          tools: [
+            {
+              type: 'mcp',
+              server_label: 'langflow',
+              require_approval: 'never',
+              server_url:
+                'http://localhost:7860/api/v1/mcp/project/4d8f7027-75b1-40ba-b99f-17984f4ebf21/sse',
+            },
+          ],
         },
         outputGuardrails: outputGuardrails ?? [],
         context: extraContext ?? {},
       });
 
+      console.info('[RealtimeSession] transport connect starting');
       await sessionRef.current.connect({ apiKey: ek });
+      console.info('[RealtimeSession] transport connect resolved', {
+        transport: sessionRef.current.transport.constructor.name,
+      });
       updateStatus('CONNECTED');
     },
     [callbacks, updateStatus],
   );
 
   const disconnect = useCallback(() => {
+    console.info('[RealtimeSession] disconnect invoked');
     sessionRef.current?.close();
     sessionRef.current = null;
     updateStatus('DISCONNECTED');

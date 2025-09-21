@@ -23,9 +23,19 @@ export function useHandleSessionHistory() {
     return content
       .map((c) => {
         if (!c || typeof c !== "object") return "";
-        if (c.type === "input_text") return c.text ?? "";
-        if (c.type === "audio") return c.transcript ?? "";
-        return "";
+        switch (c.type) {
+          case "input_text":
+          case "output_text":
+            return c.text ?? "";
+          case "audio":
+          case "input_audio":
+          case "output_audio":
+            return c.transcript ?? "";
+          case "tool_result":
+            return typeof c.result === 'string' ? c.result : JSON.stringify(c.result ?? {});
+          default:
+            return "";
+        }
       })
       .filter(Boolean)
       .join("\n");

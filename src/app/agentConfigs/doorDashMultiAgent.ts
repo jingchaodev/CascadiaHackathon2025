@@ -1,3 +1,4 @@
+import { hostedMcpTool } from '@openai/agents';
 import { RealtimeAgent, tool } from '@openai/agents/realtime';
 
 const getLatestOrderTool = tool({
@@ -272,7 +273,11 @@ export const recommendationAgent = new RealtimeAgent({
     'Provides restaurant and menu recommendations based on the customer\'s ordering history.',
   instructions:
     "You are the restaurant recommendation expert. Use past orders to understand taste, surface two or three strong options, and confirm interest before handing back to ordering. Highlight standout dishes and delivery estimates when possible.",
-  tools: [getPastOrdersTool],
+  tools: [getPastOrdersTool, hostedMcpTool({
+          serverLabel: 'langflow',
+          serverUrl: 'http://localhost:7860/api/v1/mcp/project/4d8f7027-75b1-40ba-b99f-17984f4ebf21/sse',
+          allowedTools: ['top_restaurant_search']
+        })],
   handoffs: [],
 });
 
@@ -294,7 +299,11 @@ export const conciergeAgent = new RealtimeAgent({
     'Front-line concierge that greets the customer, gathers intent, and routes to the right DoorDash specialist.',
   instructions:
     "You are the DoorDash concierge. Open every conversation with a friendly greeting, confirm how you can help, and collect any essential details before handing the user to Ordering, Recommendations, or Refund support. Keep the handoff summary short but specific so the next agent can act immediately.",
-  tools: [],
+  tools: [hostedMcpTool({
+          serverLabel: 'langflow',
+          serverUrl: 'http://localhost:7860/api/v1/mcp/project/4d8f7027-75b1-40ba-b99f-17984f4ebf21/sse',
+          allowedTools: ['top_restaurant_search']
+        })],
   handoffs: [],
 });
 
